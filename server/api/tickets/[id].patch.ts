@@ -37,17 +37,14 @@ export default defineEventHandler(async (event) => {
 
   if (!canAccess) throw createError({ statusCode: 403, statusMessage: 'Forbidden' })
 
-  // RBAC: кто что может менять
   const data: any = {}
   const changes: Record<string, { from: any; to: any }> = {}
 
   const currentTags = ticket.tags.map((x) => x.tag.name).sort()
 
-  // USER: только title/description и только пока OPEN
   if (user.role === 'USER') {
-    if (ticket.status !== 'OPEN') {
-      throw createError({ statusCode: 403, statusMessage: 'Forbidden' })
-    }
+    if (ticket.status !== 'OPEN') throw createError({ statusCode: 403, statusMessage: 'Forbidden' })
+
     if (body.title !== undefined && body.title !== ticket.title) {
       data.title = body.title
       changes.title = { from: ticket.title, to: body.title }
@@ -58,12 +55,12 @@ export default defineEventHandler(async (event) => {
     }
   }
 
-  // AGENT: только status у назначенных
   if (user.role === 'AGENT') {
     if (body.status !== undefined && body.status !== ticket.status) {
       data.status = body.status
       changes.status = { from: ticket.status, to: body.status }
     }
+
     const forbidden =
       body.title !== undefined ||
       body.description !== undefined ||
@@ -74,7 +71,6 @@ export default defineEventHandler(async (event) => {
     if (forbidden) throw createError({ statusCode: 403, statusMessage: 'Forbidden' })
   }
 
-  // ADMIN: всё
   if (user.role === 'ADMIN') {
     if (body.title !== undefined && body.title !== ticket.title) {
       data.title = body.title
@@ -122,28 +118,27 @@ export default defineEventHandler(async (event) => {
     }
   }
 
-  if (Object.keys(data).length === 0) {
-    return { ok: true, changed: false }
-  }
+  if (Object.keys(data).length === 0) return { ok: true, changed: false }
 
-  const updated = await prisma.ticket.update({
-    where: { id },
-    data: {
-      ...data,
-      audits: {
-        create: {
-          actorId: user.id,
-          action: 'ticket.update',
-          metaJson: JSON.stringify({ changes }),
-        },
+  const [updated] = await prisma.$transaction([
+    prisma.ticket.update({
+      where: { id },
+      data,
+      include: {
+        createdBy: { select: { id: true, email: true, name: true, role: true } },
+        assignedTo: { select: { id: true, email: true, name: true, role: true } },
+        tags: { include: { tag: true } },
       },
-    },
-    include: {
-      createdBy: { select: { id: true, email: true, name: true, role: true } },
-      assignedTo: { select: { id: true, email: true, name: true, role: true } },
-      tags: { include: { tag: true } },
-    },
-  })
+    }),
+    prisma.auditLog.create({
+      data: {
+        action: 'ticket.update',
+        metaJson: JSON.stringify({ changes }),
+        actor: { connect: { id: user.id } },
+        ticket: { connect: { id } },
+      },
+    }),
+  ])
 
   return {
     ok: true,
