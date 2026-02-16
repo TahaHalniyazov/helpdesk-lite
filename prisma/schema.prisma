@@ -1,0 +1,129 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+enum UserRole {
+  ADMIN
+  AGENT
+  USER
+}
+
+enum TicketStatus {
+  OPEN
+  IN_PROGRESS
+  RESOLVED
+  CLOSED
+}
+
+enum TicketPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String?
+  password  String
+  role      UserRole @default(USER)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  ticketsCreated  Ticket[]  @relation("TicketCreatedBy")
+  ticketsAssigned Ticket[]  @relation("TicketAssignedTo")
+  comments        Comment[]
+  audits          AuditLog[]
+  sessions Session[]
+
+}
+
+model Ticket {
+  id           String         @id @default(cuid())
+  title        String
+  description  String
+  status       TicketStatus   @default(OPEN)
+  priority     TicketPriority @default(MEDIUM)
+
+  createdById  String
+  assignedToId String?
+
+  createdBy    User   @relation("TicketCreatedBy", fields: [createdById], references: [id])
+  assignedTo   User?  @relation("TicketAssignedTo", fields: [assignedToId], references: [id])
+
+  comments     Comment[]
+  tags         TicketTag[]
+  audits       AuditLog[]
+
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([status])
+  @@index([priority])
+  @@index([createdById])
+  @@index([assignedToId])
+}
+
+model Comment {
+  id        String   @id @default(cuid())
+  ticketId  String
+  authorId  String
+  body      String
+  createdAt DateTime @default(now())
+
+  ticket    Ticket @relation(fields: [ticketId], references: [id])
+  author    User   @relation(fields: [authorId], references: [id])
+
+  @@index([ticketId])
+  @@index([authorId])
+}
+
+model Tag {
+  id     String @id @default(cuid())
+  name   String @unique
+
+  tickets TicketTag[]
+}
+
+model TicketTag {
+  ticketId String
+  tagId    String
+
+  ticket Ticket @relation(fields: [ticketId], references: [id])
+  tag    Tag    @relation(fields: [tagId], references: [id])
+
+  @@id([ticketId, tagId])
+  @@index([tagId])
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  actorId   String
+  ticketId  String
+  action    String
+  metaJson  String?
+  createdAt DateTime @default(now())
+
+  actor     User   @relation(fields: [actorId], references: [id])
+  ticket    Ticket @relation(fields: [ticketId], references: [id])
+
+  @@index([ticketId])
+  @@index([actorId])
+}
+
+
+model Session {
+  id        String   @id @default(cuid())
+  userId    String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+}
